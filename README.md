@@ -17,9 +17,10 @@ A personal AI assistant framework. Provider-agnostic. Clear architecture. Your d
 | Base reasoning framework   | Done    | 7-phase algorithm loaded at session start                                    |
 | Customization overrides    | Done    | `customizations/` overrides `system/`                                        |
 | Skills (markdown)          | Done    | 5 skills: BeCreative, Council, RedTeam, Science, FirstPrinciples             |
+| Skill management           | Done    | Install, update, remove, list skills from GitHub or Clawdhub                 |
 | Agents (markdown)          | Done    | 12 agent definitions                                                         |
 | Doctor command             | Done    | Health checks for installation                                               |
-| Tests                      | Done    | 390+ unit tests, Docker-based E2E                                            |
+| Tests                      | Done    | 580+ unit tests, Docker-based E2E                                            |
 | Tools                      | Done    | `inference.ts` + `memory-search.ts`; MCP server exposes to Claude Code       |
 | Memory                     | Partial | Session summarization, transcript parsing, search via CLI + MCP (MCP server) |
 | TUI                        | Planned | No interactive terminal UI yet                                               |
@@ -93,9 +94,12 @@ For the rationale behind key structural decisions, see [Architecture Decisions](
 │   └── ...                   # Security logs, patterns (search TBD)
 │
 ├── customizations/           # Your OVERRIDES for system/
-│   └── base-reasoning-framework.md  # (example) Your reasoning variant
+│   ├── base-reasoning-framework.md  # (example) Your reasoning variant
 │   └── hooks/                      # Your hooks
-│   └── ...
+│
+├── skills/                   # Installed third-party skills (via `shaka skill install`)
+│
+├── skills.json               # Tracks installed skills (source, provider, version)
 │
 ├── system/ → <repo>/defaults/system  # Symlink to framework (replaced on upgrade)
 │   ├── base-reasoning-framework.md   # Default reasoning framework
@@ -116,6 +120,7 @@ For the rationale behind key structural decisions, see [Architecture Decisions](
 | `user/`           | Who you are (you write it)       | You   | Never touched     | Yes    |
 | `memory/`         | What Shaka learns (Shaka writes) | Shaka | Never touched     | Yes    |
 | `customizations/` | Your overrides for system/       | You   | Never touched     | Yes    |
+| `skills/`         | Installed third-party skills     | You   | Never touched     | Yes    |
 | `system/`         | Framework defaults (symlink)     | Shaka | Replaced entirely | No     |
 
 When Shaka upgrades, `system/` is re-symlinked to the new version. Everything else is preserved.
@@ -149,6 +154,10 @@ shaka reload-hooks            # Re-discover hooks and regenerate provider config
 shaka doctor                  # Check installation health
 shaka mcp serve               # Start MCP server (for Claude Code tool integration)
 shaka memory search <query>   # Search session summaries
+shaka skill install <source>  # Install a skill (auto-detects GitHub or Clawdhub)
+shaka skill remove <name>     # Remove an installed skill
+shaka skill update [name]     # Update one or all installed skills
+shaka skill list              # List system + installed skills
 ```
 
 ### Init Flow
@@ -265,6 +274,34 @@ skills/code-review/
 ```
 
 Skills are invoked by context ("review this PR") or explicitly ("use the code-review skill").
+
+**Installing skills:**
+
+Skills can be installed from GitHub repositories or the Clawdhub registry. The source is auto-detected based on input format:
+
+```bash
+# GitHub (auto-detected when input contains /)
+shaka skill install user/repo              # Shorthand
+shaka skill install user/repo#v1.0.0       # Specific ref
+shaka skill install https://github.com/user/skill-repo
+shaka skill install https://github.com/user/repo/tree/main/skills/my-skill
+
+# Clawdhub (auto-detected for bare words without /)
+shaka skill install sonoscli               # Latest version
+shaka skill install sonoscli@1.2.0         # Specific version
+
+# Explicit provider override
+shaka skill install my-skill --github      # Force GitHub provider
+shaka skill install user/repo --clawdhub   # Force Clawdhub provider
+
+# Security options
+shaka skill install user/repo --force      # Skip security scan prompt
+shaka skill install user/repo --safe-only  # Abort if non-text files found
+```
+
+GitHub repos without a root `SKILL.md` are checked for `.claude-plugin/marketplace.json` — if found, available skills are listed for selection.
+
+Installed skills live in `skills/` and are automatically symlinked to provider config directories. A security scan flags any executable files (`.ts`, `.js`, `.sh`, etc.) before installation — skills should be markdown-only.
 
 ### Agents
 
