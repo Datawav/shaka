@@ -3,9 +3,11 @@
  * Checks system health, installation status, and config-vs-reality alignment.
  */
 
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { Command } from "commander";
 import { type ShakaConfig, loadConfig, resolveShakaHome } from "../domain/config";
+import { loadManifest } from "../domain/skills-manifest";
 import { getAllProviders } from "../providers/registry";
 import type { InstallationStatus, ProviderConfigurer, ProviderName } from "../providers/types";
 import { printOpencodeSummarizationHint } from "./hints";
@@ -42,21 +44,25 @@ function logProviderStatus(
     console.log(`    Hooks:         ${formatStatus(status.hooks.ok, status.hooks.issue)}`);
     console.log(`    Agents:        ${formatStatus(status.agents.ok, status.agents.issue)}`);
     console.log(`    Skills:        ${formatStatus(status.skills.ok, status.skills.issue)}`);
+    console.log(
+      `    Installed:     ${formatStatus(status.installedSkills.ok, status.installedSkills.issue)}`,
+    );
 
-    if (!status.hooks.ok || !status.agents.ok || !status.skills.ok) {
+    if (!status.hooks.ok || !status.agents.ok || !status.skills.ok || !status.installedSkills.ok) {
       hasIssues = true;
     }
   } else if (cliInstalled && !enabled) {
     console.log("    Hooks:         – skipped (not enabled)");
     console.log("    Agents:        – skipped (not enabled)");
     console.log("    Skills:        – skipped (not enabled)");
+    console.log("    Installed:     – skipped (not enabled)");
   }
   return hasIssues;
 }
 
 /** Check if all installation components are ok. */
 function isFullyInstalled(status: InstallationStatus): boolean {
-  return status.hooks.ok && status.agents.ok && status.skills.ok;
+  return status.hooks.ok && status.agents.ok && status.skills.ok && status.installedSkills.ok;
 }
 
 interface ProviderMismatch {
@@ -188,6 +194,47 @@ async function recheckAfterFix(shakaHome: string): Promise<boolean> {
   return hasIssues;
 }
 
+async function checkInstalledSkills(shakaHome: string): Promise<boolean> {
+  console.log("\nInstalled skills:");
+
+  const manifest = await loadManifest(shakaHome);
+  if (!manifest.ok) {
+    console.log("  ✗ Failed to load skills.json");
+    return true;
+  }
+
+  const names = Object.keys(manifest.value.skills);
+  if (names.length === 0) {
+    console.log("  (none)");
+    return false;
+  }
+
+  let hasIssues = false;
+  const skillsDir = join(shakaHome, "skills");
+
+  for (const name of names) {
+    const dirExists = await dirExistsOnDisk(join(skillsDir, name));
+    if (dirExists) {
+      const sha = manifest.value.skills[name]?.version.slice(0, 7) ?? "unknown";
+      console.log(`  ✓ ${name} (${sha})`);
+    } else {
+      console.log(`  ✗ ${name} — missing from disk (orphaned manifest entry)`);
+      hasIssues = true;
+    }
+  }
+
+  return hasIssues;
+}
+
+async function dirExistsOnDisk(path: string): Promise<boolean> {
+  try {
+    const entries = await readdir(path);
+    return entries.length >= 0;
+  } catch {
+    return false;
+  }
+}
+
 function printSummary(hasIssues: boolean): void {
   console.log(`\n${"─".repeat(40)}`);
   if (hasIssues) {
@@ -232,6 +279,9 @@ export function createDoctorCommand(): Command {
         await fixConfigAlignment(shakaHome, mismatches);
         hasIssues = await recheckAfterFix(shakaHome);
       }
+
+      const skillIssues = await checkInstalledSkills(shakaHome);
+      hasIssues = hasIssues || skillIssues;
 
       printSummary(hasIssues);
       await printOpencodeSummarizationHint(shakaHome);
