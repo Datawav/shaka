@@ -12,7 +12,14 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type Result, err, ok } from "../../domain/result";
-import { installAssetSymlink, uninstallAssetSymlink, verifyAssetSymlink } from "../asset-installer";
+import {
+  installAssetSymlink,
+  installPerSkillSymlinks,
+  uninstallAssetSymlink,
+  uninstallPerSkillSymlinks,
+  verifyAssetSymlink,
+  verifyPerSkillSymlinks,
+} from "../asset-installer";
 import {
   type DiscoveredHook,
   type HookEvent,
@@ -174,11 +181,15 @@ export class ClaudeProviderConfigurer implements ProviderConfigurer {
         join(this.claudeHome, "agents"),
       );
 
-      // Install skills from defaults/system/skills/
+      // System skills: directory symlink (original behavior)
       await installAssetSymlink(
         join(config.shakaHome, "system", "skills"),
         join(this.claudeHome, "skills"),
       );
+
+      // Installed third-party skills: per-skill symlinks
+      const skillsTarget = join(this.claudeHome, "skills");
+      await installPerSkillSymlinks(join(config.shakaHome, "skills"), skillsTarget);
 
       return ok(undefined);
     } catch (e) {
@@ -310,6 +321,9 @@ export class ClaudeProviderConfigurer implements ProviderConfigurer {
         join(config.shakaHome, "system", "skills"),
         join(this.claudeHome, "skills"),
       );
+      // Remove installed third-party skill symlinks
+      const skillsTarget = join(this.claudeHome, "skills");
+      await uninstallPerSkillSymlinks(join(config.shakaHome, "skills"), skillsTarget);
 
       return ok(undefined);
     } catch (e) {
@@ -329,8 +343,13 @@ export class ClaudeProviderConfigurer implements ProviderConfigurer {
       join(this.claudeHome, "skills"),
       "skills",
     );
+    const installedSkills = await verifyPerSkillSymlinks(
+      join(config.shakaHome, "skills"),
+      join(this.claudeHome, "skills"),
+      "installed skills",
+    );
 
-    return { hooks, agents, skills };
+    return { hooks, agents, skills, installedSkills };
   }
 
   private async checkHooks(): Promise<{ ok: boolean; issue?: string }> {

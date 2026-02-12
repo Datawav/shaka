@@ -36,4 +36,5 @@ export interface InstallationStatus {
   hooks: ComponentStatus;
   agents: ComponentStatus;
   skills: ComponentStatus;
+  installedSkills: ComponentStatus;
 }
